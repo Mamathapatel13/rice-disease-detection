@@ -13,7 +13,7 @@ def get_shap_explanation(model, img_input, class_names):
 
     background = np.zeros((1, 224, 224, 3), dtype='float32')
     explainer = shap.GradientExplainer(model, background)
-    shap_values = explainer.shap_values(img_input, nsamples=50)
+    shap_values = explainer.shap_values(img_input, nsamples=20)
     if isinstance(shap_values, list):
         shap_val = np.array(shap_values[predicted_class])[0]
     else:
