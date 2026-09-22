@@ -2,6 +2,10 @@ import os
 os.environ['TF_USE_LEGACY_KERAS'] = '1'
 
 import streamlit as st
+
+# MUST be the first Streamlit command in the whole script
+st.set_page_config(page_title="Rice Disease Detection", page_icon="🌾", layout="wide")
+
 import numpy as np
 import tf_keras as keras
 from tensorflow.keras.applications.efficientnet import preprocess_input
@@ -13,6 +17,7 @@ import io
 import sys
 sys.path.insert(0, 'utils')
 from shap_explain import get_shap_explanation
+
 # --- PATCH: fix InputLayer deserialization mismatches across Keras versions ---
 _InputLayer = keras.layers.InputLayer
 _orig_from_config = _InputLayer.from_config.__func__
@@ -28,9 +33,6 @@ def _patched_from_config(cls, config):
 _InputLayer.from_config = classmethod(_patched_from_config)
 # --- END PATCH ---
 
-@st.cache_resource
-def load_model():
-    return keras.models.load_model('model/efficientnetb0_rice.h5')
 @st.cache_resource
 def load_model():
     return keras.models.load_model('model/efficientnetb0_rice.h5')
@@ -111,7 +113,6 @@ def get_chart(probs, predicted_class):
     plt.close()
     return Image.open(buf)
 
-st.set_page_config(page_title="Rice Disease Detection", page_icon="🌾", layout="wide")
 st.title("🌾 Rice Crop Health Monitoring System")
 st.subheader("AI-Powered Disease Detection with Explainable AI (Grad-CAM + SHAP)")
 st.markdown("---")
