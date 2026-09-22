@@ -13,7 +13,24 @@ import io
 import sys
 sys.path.insert(0, 'utils')
 from shap_explain import get_shap_explanation
+# --- PATCH: fix InputLayer deserialization mismatches across Keras versions ---
+_InputLayer = keras.layers.InputLayer
+_orig_from_config = _InputLayer.from_config.__func__
 
+def _patched_from_config(cls, config):
+    config = dict(config)
+    if 'batch_shape' in config:
+        config['batch_input_shape'] = config.pop('batch_shape')
+    for bad_key in ('sparse', 'ragged', 'optional'):
+        config.pop(bad_key, None)
+    return _orig_from_config(cls, config)
+
+_InputLayer.from_config = classmethod(_patched_from_config)
+# --- END PATCH ---
+
+@st.cache_resource
+def load_model():
+    return keras.models.load_model('model/efficientnetb0_rice.h5')
 @st.cache_resource
 def load_model():
     return keras.models.load_model('model/efficientnetb0_rice.h5')
