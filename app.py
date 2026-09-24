@@ -66,7 +66,13 @@ TREATMENT = {
     'Sheath Blight': 'Apply fungicides like Hexaconazole. Reduce plant density.'
 }
 
+
 def apply_gradcam(img_input):
+    """
+    Fixed order: resize the tiny (7x7) heatmap to full size FIRST while it's
+    still smooth, THEN blur, THEN threshold. Thresholding while still tiny is
+    what caused the blocky rainbow artifacts you saw.
+    """
     try:
         grad_model = tf.keras.models.Model(
             model.inputs,
@@ -80,19 +86,32 @@ def apply_gradcam(img_input):
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
         heatmap = conv_outputs[0] @ pooled_grads[..., tf.newaxis]
         heatmap = tf.squeeze(heatmap)
-        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
         heatmap = heatmap.numpy()
+
+        heatmap_resized = cv2.resize(heatmap, (224, 224), interpolation=cv2.INTER_CUBIC)
+        heatmap_resized = np.clip(heatmap_resized, 0, 1)
+
+        heatmap_resized = cv2.GaussianBlur(heatmap_resized, (15, 15), 0)
+        heatmap_resized = np.clip(heatmap_resized, 0, 1)
+
+        heatmap_resized[heatmap_resized < 0.4] = 0
+
         img_display = img_input[0].copy()
-        img_display = (img_display - img_display.min()) / (img_display.max() - img_display.min())
+        img_display = (img_display - img_display.min()) / (img_display.max() - img_display.min() + 1e-8)
         img_display = np.uint8(255 * img_display)
-        heatmap_resized = cv2.resize(heatmap, (224, 224))
+
         heatmap_uint8 = np.uint8(255 * heatmap_resized)
         heatmap_colored = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
         heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-        superimposed = cv2.addWeighted(img_display, 0.6, heatmap_colored, 0.4, 0)
-        return superimposed
-    except:
+
+        mask = (heatmap_resized > 0).astype(np.uint8)[..., None]
+        overlay = cv2.addWeighted(img_display, 0.5, heatmap_colored, 0.5, 0)
+        blended = np.where(mask, overlay, img_display)
+        return blended
+    except Exception:
         return None
+
 
 def get_chart(probs, predicted_class):
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -113,66 +132,78 @@ def get_chart(probs, predicted_class):
     plt.close()
     return Image.open(buf)
 
+
 st.title("🌾 Rice Crop Health Monitoring System")
 st.subheader("AI-Powered Disease Detection with Explainable AI (Grad-CAM + SHAP)")
 st.markdown("---")
 
-col1, col2 = st.columns(2)
+st.write("### 📷 Upload Rice Leaf Image")
+uploaded_file = st.file_uploader(
+    "Choose a rice leaf photo...",
+    type=['jpg', 'jpeg', 'png']
+)
 
-with col1:
-    st.write("### 📷 Upload Rice Leaf Image")
-    uploaded_file = st.file_uploader(
-        "Choose a rice leaf photo...",
-        type=['jpg', 'jpeg', 'png']
-    )
-    if uploaded_file is not None:
+if uploaded_file is not None:
+    top_col1, top_col2 = st.columns([1, 1])
+
+    with top_col1:
         img = Image.open(uploaded_file)
-        st.image(img, caption="Uploaded Image", width=350)
+        st.image(img, caption="Uploaded Image", use_container_width=True)
 
-        img_resized = img.resize((224, 224))
-        img_array = np.array(img_resized)
-        if len(img_array.shape) == 2:
-            img_array = np.stack([img_array]*3, axis=-1)
-        if img_array.shape[-1] == 4:
-            img_array = img_array[:,:,:3]
+    img_resized = img.resize((224, 224))
+    img_array = np.array(img_resized)
+    if len(img_array.shape) == 2:
+        img_array = np.stack([img_array] * 3, axis=-1)
+    if img_array.shape[-1] == 4:
+        img_array = img_array[:, :, :3]
 
-        img_preprocessed = preprocess_input(img_array.astype('float32'))
-        img_input = np.expand_dims(img_preprocessed, axis=0)
+    img_preprocessed = preprocess_input(img_array.astype('float32'))
+    img_input = np.expand_dims(img_preprocessed, axis=0)
 
-        with st.spinner("🔍 Analyzing rice leaf..."):
-            predictions = model.predict(img_input)
-            predicted_class = int(np.argmax(predictions[0]))
-            confidence = float(predictions[0][predicted_class]) * 100
+    with st.spinner("🔍 Analyzing rice leaf..."):
+        predictions = model.predict(img_input)
+        predicted_class = int(np.argmax(predictions[0]))
+        confidence = float(predictions[0][predicted_class]) * 100
 
-        with col2:
-            st.write("### 🔍 Detection Result")
-            if CLASS_NAMES[predicted_class] == 'Healthy Rice Leaf':
-                st.success(f"✅ {CLASS_NAMES[predicted_class]}")
-            else:
-                st.error(f"⚠️ {CLASS_NAMES[predicted_class]}")
-            st.metric("Confidence", f"{confidence:.2f}%")
-            st.info(f"ℹ️ {DISEASE_INFO[CLASS_NAMES[predicted_class]]}")
-            st.warning(f"💊 Treatment: {TREATMENT[CLASS_NAMES[predicted_class]]}")
+    with top_col2:
+        st.write("### 🔍 Detection Result")
+        if CLASS_NAMES[predicted_class] == 'Healthy Rice Leaf':
+            st.success(f"✅ {CLASS_NAMES[predicted_class]}")
+        else:
+            st.error(f"⚠️ {CLASS_NAMES[predicted_class]}")
+        st.metric("Confidence", f"{confidence:.2f}%")
+        st.info(f"ℹ️ {DISEASE_INFO[CLASS_NAMES[predicted_class]]}")
+        st.warning(f"💊 Treatment: {TREATMENT[CLASS_NAMES[predicted_class]]}")
 
-            st.write("### 🔥 Grad-CAM — Disease Location")
-            gradcam_result = apply_gradcam(img_input)
-            if gradcam_result is not None:
-                st.image(gradcam_result,
-                        caption="🔴 Red = Disease Area | 🔵 Blue = Healthy Area",
-                        width=400)
-            else:
-                st.warning("Grad-CAM not available")
+    st.markdown("---")
 
-            st.write("### 🔬 SHAP — Feature Importance")
-            with st.spinner("Calculating SHAP values... (1-2 minutes)"):
-                try:
-                    shap_img = get_shap_explanation(model, img_input, CLASS_NAMES)
-                    st.image(shap_img,
-                            caption="SHAP: Brighter = More important features for prediction",
-                            width=700)
-                except Exception as e:
-                    st.error(f"SHAP error: {e}")
+    st.write("### 🔥 Grad-CAM — Disease Location")
+    gradcam_result = apply_gradcam(img_input)
+    if gradcam_result is not None:
+        gc1, gc2, gc3 = st.columns([1, 2, 1])
+        with gc2:
+            st.image(gradcam_result,
+                      caption="🔴 Red = Disease Area | 🔵 Blue = Healthy Area",
+                      use_container_width=True)
+    else:
+        st.warning("Grad-CAM not available")
 
-            st.write("### 📊 All Disease Probabilities")
-            chart = get_chart(predictions[0], predicted_class)
-            st.image(chart, width=550)
+    st.markdown("---")
+
+    st.write("### 🔬 SHAP — Feature Importance")
+    with st.spinner("Calculating SHAP values... (1-2 minutes)"):
+        try:
+            shap_img = get_shap_explanation(model, img_input, CLASS_NAMES)
+            st.image(shap_img,
+                      caption="SHAP: Brighter = More important features for prediction",
+                      use_container_width=True)
+        except Exception as e:
+            st.error(f"SHAP error: {e}")
+
+    st.markdown("---")
+
+    st.write("### 📊 All Disease Probabilities")
+    chart = get_chart(predictions[0], predicted_class)
+    ch1, ch2, ch3 = st.columns([1, 2, 1])
+    with ch2:
+        st.image(chart, use_container_width=True)
