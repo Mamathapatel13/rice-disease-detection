@@ -256,7 +256,7 @@ if uploaded_file is not None:
 
     with top_col1:
         img = Image.open(uploaded_file).convert('RGB')
-        st.image(img, caption="Uploaded Image", use_container_width=True)
+        st.image(img, caption="Uploaded Image")
 
     img_resized = img.resize((224, 224))
     img_array = np.array(img_resized)
@@ -287,8 +287,7 @@ if uploaded_file is not None:
         with gc2:
             st.image(
                 gradcam_result,
-                caption="🔴 Red = strongest focus | 🔵 Blue = least focus (a gradient, not an exact outline)",
-                use_container_width=True
+                caption="🔴 Red = strongest focus | 🔵 Blue = least focus (a gradient, not an exact outline)"
             )
     else:
         st.warning("Grad-CAM not available")
@@ -300,7 +299,7 @@ if uploaded_file is not None:
             shap_img = get_shap_explanation(img_input, predictions, predicted_class)
             sh1, sh2, sh3 = st.columns([1, 3, 1])
             with sh2:
-                st.image(shap_img, use_container_width=True)
+                st.image(shap_img)
         except Exception as e:
             st.error(f"SHAP error: {e}")
 
@@ -309,4 +308,4 @@ if uploaded_file is not None:
     chart = get_chart(predictions[0], predicted_class)
     ch1, ch2, ch3 = st.columns([1, 2, 1])
     with ch2:
-        st.image(chart, use_container_width=True)
+        st.image(chart)
