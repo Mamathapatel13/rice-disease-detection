@@ -15,7 +15,10 @@ import io
 import shap
 from tensorflow.keras.applications.efficientnet import preprocess_input
 
-# Model files to try, in this order (first one that loads is used)
+# --- PATCH: SHAP calls an old Keras 2 function that Keras 3 removed ---
+tf.keras.backend.learning_phase = lambda: 0
+# --- END PATCH ---
+
 CANDIDATE_MODELS = [
     'model/efficientnetb0_rice_fixed.keras',
     'model/efficientnetb0_rice_v2.h5',
@@ -120,6 +123,20 @@ TREATMENT = {
     'Leaf Scald': 'Apply fungicides. Avoid excess nitrogen. Use resistant varieties.',
     'Sheath Blight': 'Apply fungicides like Hexaconazole. Reduce plant density.'
 }
+
+
+def is_leaf_like(img, green_threshold=0.15):
+    """Quick sanity check: does this image contain enough green,
+    leaf-like color to plausibly be a plant? Rejects obviously
+    unrelated photos (faces, rooms, objects) before running the
+    real disease classifier on them."""
+    img_small = img.resize((100, 100))
+    hsv = cv2.cvtColor(np.array(img_small), cv2.COLOR_RGB2HSV)
+    lower_green = np.array([25, 40, 40])
+    upper_green = np.array([90, 255, 255])
+    mask = cv2.inRange(hsv, lower_green, upper_green)
+    green_ratio = np.sum(mask > 0) / mask.size
+    return green_ratio >= green_threshold, green_ratio
 
 
 def _first(x):
@@ -248,15 +265,32 @@ st.subheader("AI-Powered Disease Detection with Explainable AI (Grad-CAM + SHAP)
 st.caption(f"Model loaded from: {LOADED_FROM}")
 st.markdown("---")
 
-st.write("### 📷 Upload Rice Leaf Image")
-uploaded_file = st.file_uploader("Choose a rice leaf photo...", type=['jpg', 'jpeg', 'png'])
+st.write("### 📷 Upload or Capture Rice Leaf Image")
+input_method = st.radio("Choose input method:", ["📁 Upload Photo", "📸 Use Camera"], horizontal=True)
 
-if uploaded_file is not None:
+img = None
+if input_method == "📁 Upload Photo":
+    uploaded_file = st.file_uploader("Choose a rice leaf photo...", type=['jpg', 'jpeg', 'png'])
+    if uploaded_file is not None:
+        img = Image.open(uploaded_file).convert('RGB')
+else:
+    camera_file = st.camera_input("Take a photo of the rice leaf")
+    if camera_file is not None:
+        img = Image.open(camera_file).convert('RGB')
+
+if img is not None:
+    leaf_ok, green_pct = is_leaf_like(img)
+    if not leaf_ok:
+        st.error(
+            f"⚠️ This doesn't look like a rice leaf image (only {green_pct*100:.1f}% green content detected). "
+            "Please upload or capture a clear photo of a rice leaf."
+        )
+        st.stop()
+
     top_col1, top_col2 = st.columns([1, 1])
 
     with top_col1:
-        img = Image.open(uploaded_file).convert('RGB')
-        st.image(img, caption="Uploaded Image")
+        st.image(img, caption="Captured/Uploaded Image")
 
     img_resized = img.resize((224, 224))
     img_array = np.array(img_resized)
