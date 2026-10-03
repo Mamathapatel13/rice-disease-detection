@@ -17,6 +17,7 @@ from tensorflow.keras.applications.efficientnet import preprocess_input
 
 # --- PATCH: SHAP calls an old Keras 2 function that Keras 3 removed ---
 tf.keras.backend.learning_phase = lambda: 0
+tf.keras.backend.set_learning_phase = lambda x: None
 # --- END PATCH ---
 
 CANDIDATE_MODELS = [
